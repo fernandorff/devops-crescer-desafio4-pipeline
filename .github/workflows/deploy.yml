@@ -97,5 +97,5 @@ jobs:
         registry-login-server: docker.io
         registry-username: ${{ secrets.REGISTRY_USERNAME }}
         registry-password: ${{ secrets.REGISTRY_PASSWORD }}
-        nome: lab-crescer-fernando-filho
+        name: lab-crescer-fernando-filho
         location: 'east us'
