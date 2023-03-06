@@ -1,1 +1,101 @@
+name: Deploy to Azure ACI
 
+on:
+  push:
+    branches: ["main"]
+
+jobs:
+  build:
+    name: Compilação
+    runs-on: ubuntu-latest
+
+    steps:
+    - name: Git Checkout
+      uses: actions/checkout@v3
+    - name: Configure JDK 11
+      uses: actions/setup-java@v3
+      with:
+        java-version: '11'
+        distribution: 'temurin'
+        cache: maven
+    - name: Compilação
+      run: mvn clean install -DskipTests
+
+code-quality:
+  name: Qualidade de código
+  needs: build
+  runs-on: ubuntu-latest
+
+  steps:
+  - name: Git Checkout
+    uses: actions/checkout@v3
+  - name: Adicionando permissão para o mvnw
+    run: chmod +x mvnw
+  - name: Análise SonarCloud
+    run: ./mvnw verify org.sonarsource.scanner.maven:sonar-maven-plugin:sonar -Dsonar.projectKey=lab-crescer-pipeline
+    env: 
+      SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
+    
+tests:
+  name: Teste Automatizados
+  needs: code-quality
+  runs-on: ubuntu-latest
+
+  steps:
+  - name: Git Checkout
+    uses: actions/checkout@v3
+  - name: Configure JDK 11
+    uses: actions/setup-java@v3
+    with:
+      java-version: '11'
+      distribution: 'temurin'
+      cache: maven
+  - name: Testes unitários
+    run: mvn -B test --file pom.xml
+
+push-image:
+  name: Enviando Imagem para o DockerHub
+  needs: tests
+  runs-on: ubuntu-latest
+
+  steps:
+  - name: Login DockeHub
+    uses: docker/login-action@v2
+    with:
+      username: ${{ secrets.DOCKERHUB_USERNAME }}
+      password: ${{ secrets.DOCKERHUB_TOKEN }}
+
+  - name: Criacao e envio da imagem
+    uses: docker/build-push-action@v4
+    with:
+      file: ./Dockerfile
+      push: true
+      run: |
+        export DOCKER_BUILDKIT=0
+        export COMPOSE_DOCKER_CLI_BUILD=0
+      tags:
+        ${{ secrets.DOCKERHUB_USERNAME }}/javacrescer:latest
+
+deploy:
+  name: Publica App ACI
+  needs: push-image
+  runs-on: ubuntu-latest
+  steps:
+  - name: Login via Azure CLI
+    uses: azure/login@v1
+    with: 
+      creds: ${{ secrets.AZURE_CREDENTIALS }}
+  
+  - name: Deploy da Aplicação Hello-Java
+    uses: Azure/aci-deploy@v1
+    with:
+      resource-group: RG-APPS-CRESCER
+      dns-name-label: lab-crescer-fernando-filho
+      image: ${{ secrets.DOCKERHUB_USERNAME }}/javacrescer:latest
+      cpu: 1
+      memory: 1
+      registry-login-server: docker.io
+      registry-username: ${{ secrets.REGISTRY_USERNAME }}
+      registry-password: ${{ secrets.REGISTRY_PASSWORD }}
+      nome: lab-crescer-fernando-filho
+      location: 'east us'
